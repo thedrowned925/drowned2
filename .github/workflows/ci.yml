@@ -65,6 +65,7 @@ jobs:
           python -m py_compile windows/launcher/app_v14.py
           python -m py_compile windows/launcher/app_v15.py
           python -m py_compile windows/launcher/app_v16.py
+          python -m py_compile windows/launcher/app_drowned2.py
           python -m py_compile windows/launcher/library_grid.py
           python -m py_compile windows/launcher/library_navigation.py
           python -m py_compile windows/launcher/xinput.py
