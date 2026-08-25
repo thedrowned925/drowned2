@@ -24,9 +24,9 @@ jobs:
           - name: Drowned-Release-Manager
             dir: windows/release-manager
             entry: app_v10.py
-          - name: Drowned-Launcher
+          - name: Drowned2-Launcher
             dir: windows/launcher
-            entry: app_v16.py
+            entry: app_drowned2.py
     steps:
       - uses: actions/checkout@v6
 
@@ -76,6 +76,9 @@ jobs:
           python -m PyInstaller.utils.cliutils.archive_viewer -r $archive | Out-File -Encoding utf8 archive-contents.txt
           if (-not (Select-String -Path archive-contents.txt -Pattern "drowned_shared" -Quiet)) {
             throw "PyInstaller archive does not contain drowned_shared"
+          }
+          if (-not (Select-String -Path archive-contents.txt -Pattern "drowned_shared.install" -Quiet)) {
+            throw "PyInstaller archive does not contain install backend"
           }
           if (-not (Select-String -Path archive-contents.txt -Pattern "drowned_shared.addons" -Quiet)) {
             throw "PyInstaller archive does not contain optional-package backend"
