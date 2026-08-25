@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,6 +29,12 @@ class SteamDetectTests(unittest.TestCase):
         )
         return steamapps, game, manifest
 
+    def assertSamePath(self, left: Path, right: Path):
+        # GitHub's Windows runner may expose the same temp directory as both
+        # C:\\Users\\RUNNER~1 and C:\\Users\\runneradmin. samefile compares the
+        # actual filesystem identity instead of the textual spelling.
+        self.assertTrue(os.path.samefile(left, right), f"Paths differ: {left} != {right}")
+
     def test_parse_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, manifest = self._make_game(Path(tmp))
@@ -44,7 +51,7 @@ class SteamDetectTests(unittest.TestCase):
             self.assertEqual(info.app_id, 620)
             self.assertEqual(info.name, "Portal 2")
             self.assertEqual(info.build_id, "123456")
-            self.assertEqual(info.game_root, game)
+            self.assertSamePath(info.game_root, game)
 
     def test_detects_subfolder_of_game(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -54,7 +61,7 @@ class SteamDetectTests(unittest.TestCase):
             with patch("drowned_shared.steam_detect._default_steamapps", return_value=[]):
                 info = detect_steam_game(selected)
             self.assertEqual(info.app_id, 620)
-            self.assertEqual(info.game_root, game)
+            self.assertSamePath(info.game_root, game)
 
     def test_steam_appid_txt_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -64,7 +71,7 @@ class SteamDetectTests(unittest.TestCase):
             with patch("drowned_shared.steam_detect.known_steamapps", return_value=[]):
                 info = detect_steam_game(game)
             self.assertEqual(info.app_id, 730)
-            self.assertEqual(info.game_root, game)
+            self.assertSamePath(info.game_root, game)
 
     def test_rejects_non_steam_folder_without_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
