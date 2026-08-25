@@ -1,16 +1,12 @@
 name: Bootstrap drowned2 from drowned1
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/bootstrap-from-drowned1.yml
   pull_request:
     branches:
       - main
     types:
       - opened
+      - synchronize
   workflow_dispatch:
 
 permissions:
@@ -20,40 +16,37 @@ jobs:
   bootstrap:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout drowned2
+      - name: Checkout drowned2 PR head
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Copy current drowned1 source tree
+      - name: Copy current drowned1 source tree except generated data and workflows
         shell: bash
         run: |
           set -euo pipefail
           git clone --depth 1 https://github.com/thedrowned925/drowned1.git source
           rsync -a \
             --exclude='.git/' \
+            --exclude='.github/workflows/' \
             --exclude='artwork/' \
             --exclude='manifests/' \
             --exclude='catalog.json' \
             --exclude='game-list.md' \
             --exclude='.build-status/' \
-            --exclude='.github/workflows/bootstrap-from-drowned1.yml' \
             source/ ./
           rm -rf source
 
-      - name: Point copied code at drowned2
+      - name: Point copied source code at drowned2
         shell: python
         run: |
           from pathlib import Path
 
-          replacements = {
-              "thedrowned925/drowned1": "thedrowned925/drowned2",
-              "github.com/thedrowned925/drowned1": "github.com/thedrowned925/drowned2",
-          }
-
           for path in Path('.').rglob('*'):
               if not path.is_file() or '.git' in path.parts:
+                  continue
+              if len(path.parts) >= 2 and path.parts[0] == '.github' and path.parts[1] == 'workflows':
                   continue
               try:
                   raw = path.read_bytes()
@@ -63,9 +56,7 @@ jobs:
               except (UnicodeDecodeError, OSError):
                   continue
 
-              updated = text
-              for old, new in replacements.items():
-                  updated = updated.replace(old, new)
+              updated = text.replace('thedrowned925/drowned1', 'thedrowned925/drowned2')
               if updated != text:
                   path.write_text(updated, encoding='utf-8')
 
@@ -82,14 +73,13 @@ jobs:
           from datetime import datetime, timezone
           from pathlib import Path
 
-          catalog = {
-              "schema_version": 1,
-              "updated_at": datetime.now(timezone.utc).isoformat(),
-              "games": [],
-          }
-          Path("catalog.json").write_text(
-              json.dumps(catalog, ensure_ascii=False, indent=2) + "\n",
-              encoding="utf-8",
+          Path('catalog.json').write_text(
+              json.dumps({
+                  'schema_version': 1,
+                  'updated_at': datetime.now(timezone.utc).isoformat(),
+                  'games': [],
+              }, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
           )
           PY
 
