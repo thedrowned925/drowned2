@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 V14 = ROOT / "windows" / "launcher" / "app_v14.py"
+D2_LAUNCHER = ROOT / "windows" / "launcher" / "app_drowned2.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "build-windows.yml"
 
 
@@ -55,10 +56,16 @@ class LauncherUIV14Tests(unittest.TestCase):
         self.assertIn("import app_v12 as previous", source)
         self.assertIn('APP_VERSION = "0.14.0"', source)
 
-    def test_windows_build_keeps_release_manager_and_uses_latest_launcher_ui(self):
+    def test_windows_build_keeps_release_manager_and_uses_drowned2_launcher(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
+        source = D2_LAUNCHER.read_text(encoding="utf-8")
         self.assertIn("dir: windows/release-manager\n            entry: app_v10.py", workflow)
-        self.assertIn("dir: windows/launcher\n            entry: app_v16.py", workflow)
+        self.assertIn("name: Drowned2-Launcher", workflow)
+        self.assertIn("dir: windows/launcher\n            entry: app_drowned2.py", workflow)
+        self.assertIn("import app_v16 as previous", source)
+        self.assertIn('D2_OWNER = "thedrowned925"', source)
+        self.assertIn('D2_REPO = "drowned2"', source)
+        self.assertIn('D2_BRANCH = "main"', source)
 
 
 if __name__ == "__main__":
