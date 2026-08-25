@@ -7,7 +7,7 @@ on:
       - 'shared/python/drowned_shared/steam_detect.py'
       - 'shared/python/drowned_shared/steam_artwork.py'
       - 'windows/release-manager/app_steam.py'
-      - 'tests/test_steam_detect.py'
+      - 'tests/**'
       - '.github/workflows/build-steam-backup.yml'
   workflow_dispatch:
 
@@ -18,9 +18,9 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
           cache: 'pip'
@@ -44,9 +44,9 @@ jobs:
 
       - name: Run Steam detection tests
         shell: pwsh
-        run: python -X utf8 -m unittest tests.test_steam_detect -v
+        run: python -X utf8 -m unittest discover -s tests -p "test_steam_detect.py" -v
 
-      - name: Run existing Drowned test suite
+      - name: Run complete Drowned test suite
         shell: pwsh
         run: python -X utf8 -m unittest discover -s tests -v
 
