@@ -190,7 +190,7 @@ class Manager(QMainWindow):
         card.setObjectName("infoCard")
         form = QFormLayout(card)
         self.owner = QLineEdit(self.settings.value("owner", "thedrowned925"))
-        self.repo = QLineEdit(self.settings.value("repo", "drowned1"))
+        self.repo = QLineEdit(self.settings.value("repo", "drowned2"))
         self.branch = QLineEdit(self.settings.value("branch", "main"))
         self.token = QLineEdit(keyring.get_password(SERVICE, ACCOUNT) or "")
         self.token.setEchoMode(QLineEdit.Password)

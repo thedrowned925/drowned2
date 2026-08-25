@@ -4,7 +4,7 @@ from drowned_shared.deletion import delete_channel, delete_game
 
 
 class FakeClient:
-    owner='thedrowned925'; repo='drowned1'; branch='main'
+    owner='thedrowned925'; repo='drowned2'; branch='main'
     def __init__(self,catalog):
         self.catalog=catalog; self.releases={}; self.tags=set(); self.files=set(); self.deleted_releases=[]; self.deleted_tags=[]; self.deleted_files=[]; self.catalog_writes=0; self.fail_delete=False
     def raw_content(self,path):

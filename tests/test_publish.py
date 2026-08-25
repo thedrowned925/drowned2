@@ -47,7 +47,7 @@ class FakeUploader:
 
 class FakeClient:
     owner = "thedrowned925"
-    repo = "drowned1"
+    repo = "drowned2"
     branch = "main"
     token = "fake-token"
 

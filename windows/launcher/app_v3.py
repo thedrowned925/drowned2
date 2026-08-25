@@ -220,7 +220,7 @@ class Launcher(QMainWindow):
         self.setMinimumSize(1080, 700)
         self.settings = QSettings("Drowned", "Launcher")
         self.owner = self.settings.value("owner", "thedrowned925")
-        self.repo = self.settings.value("repo", "drowned1")
+        self.repo = self.settings.value("repo", "drowned2")
         self.branch = self.settings.value("branch", "main")
         self.catalog = {"games": []}
         self.current_game = None

@@ -78,7 +78,7 @@ class Manager(QMainWindow):
 
     def _settings_tab(self):
         w=QWidget(); v=QVBoxLayout(w); title=QLabel("GitHub Bağlantısı"); title.setStyleSheet("font-size:28px;font-weight:800"); v.addWidget(title)
-        form=QFormLayout(); self.owner=QLineEdit(self.settings.value("owner","thedrowned925")); self.repo=QLineEdit(self.settings.value("repo","drowned1")); self.branch=QLineEdit(self.settings.value("branch","main")); self.token=QLineEdit(keyring.get_password(SERVICE,ACCOUNT) or ""); self.token.setEchoMode(QLineEdit.Password)
+        form=QFormLayout(); self.owner=QLineEdit(self.settings.value("owner","thedrowned925")); self.repo=QLineEdit(self.settings.value("repo","drowned2")); self.branch=QLineEdit(self.settings.value("branch","main")); self.token=QLineEdit(keyring.get_password(SERVICE,ACCOUNT) or ""); self.token.setEchoMode(QLineEdit.Password)
         form.addRow("Owner",self.owner); form.addRow("Repository",self.repo); form.addRow("Branch",self.branch); form.addRow("Fine-grained PAT",self.token); v.addLayout(form)
         row=QHBoxLayout(); save=QPushButton("Güvenli kaydet"); test=QPushButton("Bağlantıyı test et"); save.clicked.connect(self.save_settings); test.clicked.connect(self.test_connection); row.addWidget(save); row.addWidget(test); row.addStretch(); v.addLayout(row)
         note=QLabel("Token yalnızca işletim sistemi keyring/Windows Credential Manager içinde saklanır; kaynak koda yazılmaz. Okuma işlemlerinde katalog/manifest/artwork için raw.githubusercontent.com tercih edilir; REST API yalnızca yönetim yazmaları için kullanılır."); note.setWordWrap(True); note.setStyleSheet("color:#8d99aa"); v.addWidget(note); v.addStretch(); return w
