@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Drowned2 File Explorer</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">D2</span>
+        <div>
+          <strong>Drowned2 File Explorer</strong>
+          <small>GitHub Release chunk arşivi</small>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span id="connectionBadge" class="badge warn">Proxy ayarlanmadı</span>
+        <button id="settingsButton" class="button ghost" type="button">Ayarlar</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-title">Oyunlar</div>
+        <div id="gameList" class="game-list"></div>
+      </aside>
+
+      <section class="content">
+        <div class="toolbar">
+          <div>
+            <h1 id="gameTitle">Arşiv</h1>
+            <div id="gameMeta" class="muted">catalog.json yükleniyor…</div>
+          </div>
+          <label class="channel-picker">
+            <span>Kanal</span>
+            <select id="channelSelect" disabled></select>
+          </label>
+        </div>
+
+        <div class="search-row">
+          <input id="searchInput" type="search" placeholder="Dosya veya klasör ara…" autocomplete="off">
+        </div>
+
+        <nav id="breadcrumbs" class="breadcrumbs" aria-label="Klasör yolu"></nav>
+
+        <div class="table-wrap">
+          <table class="file-table">
+            <thead>
+              <tr>
+                <th>Ad</th>
+                <th>Tür</th>
+                <th class="number">Boyut</th>
+              </tr>
+            </thead>
+            <tbody id="fileRows">
+              <tr><td colspan="3" class="empty">Oyun bekleniyor…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="fileDialog" class="dialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-head">
+        <div>
+          <h2 id="fileDialogTitle">Dosya</h2>
+          <div id="fileDialogPath" class="muted mono"></div>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Kapat">×</button>
+      </div>
+      <div id="fileDialogStats" class="stats"></div>
+      <div id="downloadProgress" class="progress-block hidden">
+        <div class="progress-line"><span id="progressText">Hazırlanıyor…</span><span id="progressPercent">0%</span></div>
+        <progress id="progressBar" max="100" value="0"></progress>
+      </div>
+      <div id="previewArea" class="preview-area hidden"></div>
+      <div class="dialog-actions">
+        <button id="previewButton" class="button ghost" type="button">Önizle</button>
+        <button id="downloadButton" class="button primary" type="button">Dosyayı indir</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settingsDialog" class="dialog">
+    <form method="dialog" class="dialog-card settings-card">
+      <div class="dialog-head">
+        <div>
+          <h2>İndirme geçidi</h2>
+          <div class="muted">Bu bilgiler yalnızca bu tarayıcıda localStorage içinde tutulur.</div>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Kapat">×</button>
+      </div>
+      <label class="field">
+        <span>Cloudflare Worker URL</span>
+        <input id="proxyUrlInput" type="url" placeholder="https://drowned2-range.example.workers.dev">
+      </label>
+      <label class="field">
+        <span>Erişim anahtarı</span>
+        <input id="accessKeyInput" type="password" placeholder="Worker ACCESS_KEY ile aynı değer">
+      </label>
+      <p class="hint">Anahtar repoya veya GitHub Pages dosyalarına yazılmaz. Worker tarafında ACCESS_KEY tanımlıysa burada aynı anahtarı gir.</p>
+      <div class="dialog-actions">
+        <button id="saveSettingsButton" class="button primary" type="button">Kaydet</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
