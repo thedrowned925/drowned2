@@ -127,11 +127,11 @@ def main() -> None:
     total_releases = sum(len(rows) for rows in rows_by_platform.values())
 
     lines = [
-        "# Game List",
+        "# Steam Game Backup List",
         "",
-        "> Bu dosya `catalog.json` verisinden GitHub Actions tarafından otomatik üretilir. Elle düzenlemeyin.",
+        "> Bu dosya `drowned2` içindeki Steam yedek kataloğu olan `catalog.json` verisinden GitHub Actions tarafından otomatik üretilir. Elle düzenlemeyin.",
         "",
-        f"- **Toplam oyun:** {total_games}",
+        f"- **Toplam Steam oyunu:** {total_games}",
         f"- **Toplam aktif sürüm/kanal:** {total_releases}",
         f"- **Toplam aktif boyut:** {format_gb(total_size)} GB ({format_gib(total_size)} GiB)",
         f"- **Katalog güncelleme zamanı:** {format_updated_at(catalog.get('updated_at'))}",
@@ -192,7 +192,7 @@ def main() -> None:
         [
             "---",
             "",
-            "_Otomatik üretici: `scripts/generate_game_list.py`_",
+            "_Otomatik üretici: `scripts/generate_game_list.py` · Drowned2 Steam-only_",
             "",
         ]
     )
