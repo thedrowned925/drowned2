@@ -1,0 +1,212 @@
+name: Extract Drowned2 File
+run-name: Extract ${{ inputs.request_id }} — ${{ inputs.file_path }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_path:
+        description: Repository manifest path
+        required: true
+        type: string
+      file_path:
+        description: File path inside the game backup
+        required: true
+        type: string
+      request_id:
+        description: Unique request id from the web explorer
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: drowned2-extract-${{ inputs.request_id }}
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      MANIFEST_PATH: ${{ inputs.manifest_path }}
+      FILE_PATH: ${{ inputs.file_path }}
+      REQUEST_ID: ${{ inputs.request_id }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Rebuild selected file from chunk ranges
+        id: rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          root = Path.cwd().resolve()
+          manifest_rel = os.environ["MANIFEST_PATH"].replace("\\", "/").lstrip("/")
+          file_path = os.environ["FILE_PATH"].replace("\\", "/").lstrip("/")
+          request_id = os.environ["REQUEST_ID"]
+
+          if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", request_id):
+              raise SystemExit("invalid request id")
+          if not manifest_rel.startswith("manifests/") or ".." in Path(manifest_rel).parts:
+              raise SystemExit("invalid manifest path")
+          if not file_path or ".." in Path(file_path).parts:
+              raise SystemExit("invalid file path")
+
+          manifest_file = (root / manifest_rel).resolve()
+          if root not in manifest_file.parents:
+              raise SystemExit("manifest escaped repository root")
+          manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+
+          release = manifest.get("release") or {}
+          repo_full = os.environ["GITHUB_REPOSITORY"]
+          expected_owner, expected_repo = repo_full.split("/", 1)
+          if release.get("owner") != expected_owner or release.get("repo") != expected_repo:
+              raise SystemExit("manifest points to a different repository")
+          tag = str(release.get("tag") or "")
+          if not re.fullmatch(r"[A-Za-z0-9._-]+", tag):
+              raise SystemExit("invalid release tag")
+
+          file_meta = next((item for item in manifest.get("files", []) if item.get("path") == file_path), None)
+          if not file_meta:
+              raise SystemExit("requested file is not present in manifest")
+
+          segments = []
+          for chunk in manifest.get("chunks", []):
+              chunk_name = str(chunk.get("name") or "")
+              if not re.fullmatch(r"chunk-\d{6}\.bin", chunk_name):
+                  raise SystemExit(f"invalid chunk name: {chunk_name}")
+              chunk_size = int(chunk.get("size") or 0)
+              for segment in chunk.get("segments", []):
+                  if segment.get("file") != file_path:
+                      continue
+                  segments.append({
+                      "chunk": chunk_name,
+                      "chunk_size": chunk_size,
+                      "chunk_offset": int(segment.get("chunk_offset") or 0),
+                      "file_offset": int(segment.get("file_offset") or 0),
+                      "length": int(segment.get("length") or 0),
+                  })
+
+          segments.sort(key=lambda item: item["file_offset"])
+          if not segments:
+              raise SystemExit("manifest contains no segments for requested file")
+
+          expected_offset = 0
+          for segment in segments:
+              if segment["file_offset"] != expected_offset or segment["length"] <= 0:
+                  raise SystemExit("file segment map is not contiguous")
+              if segment["chunk_offset"] < 0 or segment["chunk_offset"] + segment["length"] > segment["chunk_size"]:
+                  raise SystemExit("file segment exceeds chunk bounds")
+              expected_offset += segment["length"]
+
+          expected_size = int(file_meta.get("size") or 0)
+          if expected_offset != expected_size:
+              raise SystemExit(f"segment size mismatch: {expected_offset} != {expected_size}")
+
+          original_name = Path(file_path).name or "download.bin"
+          safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", original_name).strip("._") or "download.bin"
+          asset_name = f"{request_id}-{safe_name}"
+          out_dir = root / "extract-out"
+          out_dir.mkdir(exist_ok=True)
+          output = out_dir / asset_name
+          temp = out_dir / ".part"
+
+          server = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+          total_written = 0
+          with output.open("wb") as dst:
+              for index, segment in enumerate(segments, 1):
+                  start = segment["chunk_offset"]
+                  end = start + segment["length"] - 1
+                  url = f"{server}/{repo_full}/releases/download/{tag}/{segment['chunk']}"
+                  print(f"[{index}/{len(segments)}] {segment['chunk']} bytes={start}-{end}", flush=True)
+                  command = [
+                      "curl", "-fsSL", "--retry", "4", "--retry-all-errors",
+                      "--range", f"{start}-{end}", "--output", str(temp),
+                      "--write-out", "%{http_code}", url,
+                  ]
+                  result = subprocess.run(command, check=True, capture_output=True, text=True)
+                  status = result.stdout.strip()[-3:]
+                  part_size = temp.stat().st_size
+
+                  if status == "206":
+                      if part_size != segment["length"]:
+                          raise SystemExit(f"partial response size mismatch for {segment['chunk']}")
+                      with temp.open("rb") as src:
+                          while True:
+                              block = src.read(8 * 1024 * 1024)
+                              if not block:
+                                  break
+                              dst.write(block)
+                              total_written += len(block)
+                  elif status == "200":
+                      # Some GitHub/CDN paths can ignore Range. Fall back to slicing
+                      # the touched chunk locally; this still never downloads the full game.
+                      if part_size != segment["chunk_size"]:
+                          raise SystemExit(f"GitHub ignored Range with an unexpected body size for {segment['chunk']}")
+                      with temp.open("rb") as src:
+                          src.seek(start)
+                          remaining = segment["length"]
+                          while remaining:
+                              block = src.read(min(8 * 1024 * 1024, remaining))
+                              if not block:
+                                  raise SystemExit("unexpected EOF while slicing fallback chunk")
+                              dst.write(block)
+                              total_written += len(block)
+                              remaining -= len(block)
+                  else:
+                      raise SystemExit(f"unexpected HTTP status {status} for {segment['chunk']}")
+                  temp.unlink(missing_ok=True)
+
+          if total_written != expected_size:
+              raise SystemExit(f"rebuilt size mismatch: {total_written} != {expected_size}")
+
+          expected_sha = str(file_meta.get("sha256") or "").lower()
+          digest = hashlib.sha256()
+          with output.open("rb") as src:
+              for block in iter(lambda: src.read(8 * 1024 * 1024), b""):
+                  digest.update(block)
+          actual_sha = digest.hexdigest()
+          if expected_sha and actual_sha != expected_sha:
+              raise SystemExit(f"SHA-256 mismatch: {actual_sha} != {expected_sha}")
+
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as handle:
+              handle.write(f"asset_name={asset_name}\n")
+              handle.write(f"asset_path={output.as_posix()}\n")
+              handle.write(f"sha256={actual_sha}\n")
+              handle.write(f"size={expected_size}\n")
+          print(f"Rebuilt {file_path} -> {asset_name} ({expected_size} bytes, sha256={actual_sha})")
+          PY
+
+      - name: Publish extracted file
+        shell: bash
+        env:
+          ASSET_PATH: ${{ steps.rebuild.outputs.asset_path }}
+        run: |
+          set -euo pipefail
+          TAG="drowned2-extracts"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Drowned2 File Extracts" --notes "Files reconstructed on demand by the Drowned2 GitHub Pages explorer."
+          fi
+          gh release upload "$TAG" "$ASSET_PATH" --clobber
+
+      - name: Summary
+        run: |
+          {
+            echo "### Drowned2 extraction complete"
+            echo ""
+            echo "- File: \`${FILE_PATH}\`"
+            echo "- Asset: \`${{ steps.rebuild.outputs.asset_name }}\`"
+            echo "- Size: \`${{ steps.rebuild.outputs.size }}\` bytes"
+            echo "- SHA-256: \`${{ steps.rebuild.outputs.sha256 }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
