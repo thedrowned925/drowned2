@@ -1,0 +1,79 @@
+name: Build Drowned2 Steam Backup Manager
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'shared/python/drowned_shared/steam_detect.py'
+      - 'shared/python/drowned_shared/steam_artwork.py'
+      - 'windows/release-manager/app_steam.py'
+      - 'tests/test_steam_detect.py'
+      - '.github/workflows/build-steam-backup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            shared/python/pyproject.toml
+            windows/release-manager/requirements.txt
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m pip install shared/python
+          python -m pip install -r windows/release-manager/requirements.txt
+
+      - name: Compile Steam-aware manager
+        shell: pwsh
+        run: |
+          python -m py_compile shared/python/drowned_shared/steam_detect.py
+          python -m py_compile shared/python/drowned_shared/steam_artwork.py
+          python -m py_compile windows/release-manager/app_steam.py
+
+      - name: Run Steam detection tests
+        shell: pwsh
+        run: python -X utf8 -m unittest tests.test_steam_detect -v
+
+      - name: Run existing Drowned test suite
+        shell: pwsh
+        run: python -X utf8 -m unittest discover -s tests -v
+
+      - name: Build Windows Release Manager
+        shell: pwsh
+        run: >-
+          pyinstaller
+          --noconfirm
+          --clean
+          --windowed
+          --paths "shared/python"
+          --collect-all drowned_shared
+          --name "Drowned2-Release-Manager"
+          "windows/release-manager/app_steam.py"
+
+      - name: Verify package
+        shell: pwsh
+        run: |
+          $exe = "dist/Drowned2-Release-Manager/Drowned2-Release-Manager.exe"
+          if (!(Test-Path $exe)) { throw "Drowned2 Release Manager executable missing" }
+          python -m PyInstaller.utils.cliutils.archive_viewer -r $exe | Out-File -Encoding utf8 archive.txt
+          foreach ($module in @("drowned_shared.steam_detect", "drowned_shared.steam_artwork")) {
+            if (-not (Select-String -Path archive.txt -Pattern $module -Quiet)) { throw "Package missing $module" }
+          }
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Drowned2-Release-Manager-Windows
+          path: dist/Drowned2-Release-Manager/
