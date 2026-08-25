@@ -1,8 +1,0 @@
-name = "drowned2-range-proxy"
-main = "src/index.js"
-compatibility_date = "2026-08-25"
-
-[vars]
-ALLOWED_OWNER = "thedrowned925"
-ALLOWED_REPO = "drowned2"
-ALLOWED_ORIGIN = "https://thedrowned925.github.io"
