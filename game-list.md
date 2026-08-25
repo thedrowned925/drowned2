@@ -1,8 +1,12 @@
-# Steam Oyun Arşivi
+# Game List
 
-Bu liste `drowned2` repository'sinde yedeklenen Steam oyunlarını takip eder.
+> Bu dosya `catalog.json` verisinden GitHub Actions tarafından otomatik üretilir. Elle düzenlemeyin.
 
-**Platform:** PC / Steam  
-**Durum:** Henüz oyun eklenmedi.
+- **Toplam oyun:** 0
+- **Toplam aktif sürüm/kanal:** 0
+- **Toplam aktif boyut:** 0.000 GB (0.000 GiB)
+- **Katalog güncelleme zamanı:** 2026-08-25 11:43:03 UTC
 
-Oyunlar Release Manager üzerinden yayınlandıkça katalog, manifest ve release verileri bu repository içinde oluşacaktır.
+---
+
+_Otomatik üretici: `scripts/generate_game_list.py`_
