@@ -52,6 +52,8 @@ Steam eşleşmesi bulunamazsa mevcut Drowned mantığı bozulmaz; klasör yine s
 - **`windows/release-manager/app_steam.py`** — Drowned2 için Steam otomatik algılamalı ana Release Manager giriş noktası.
 - **Drowned Release Manager altyapısı** — oyun klasörünü GitHub Release assetlerine stream eder, manifest ve katalog üretir.
 - **Drowned Launcher** — `catalog.json` ve manifestleri okuyup yedekleri indirir, SHA-256 doğrulaması yapar ve dosyaları final konumlarına yazar.
+- **`web/`** — GitHub Pages üzerinde oyunları klasör klasör gezen ve tek dosya indirebilen web arayüzü.
+- **`worker/`** — yalnızca `thedrowned925/drowned2` Release chunk'larının izin verilen byte aralıklarını geçiren Cloudflare Worker.
 - **`shared/python`** — chunking, install, GitHub client, metadata, Steam artwork ve doğrulama altyapısı.
 - **`tests`** — Drowned1 testleri + Steam klasör algılama testleri.
 
@@ -60,6 +62,38 @@ Steam eşleşmesi bulunamazsa mevcut Drowned mantığı bozulmaz; klasör yine s
 Büyük oyun dosyaları normal Git history içine yazılmaz. Release Manager kaynak klasörü doğrudan stream eder; Balanced Direct Stream planı dosyaları adaptif chunk'lara ayırır ve GitHub Release Assets olarak yükler.
 
 Launcher chunk dosyalarını kalıcı arşiv olarak tutmak yerine manifestteki segment haritasına göre final dosyaların doğru offsetlerine yazar ve SHA-256 doğrulaması yapar.
+
+## Web File Explorer — tek dosya erişimi
+
+Web arayüzü mevcut chunk formatını değiştirmez. Manifestte zaten bulunan:
+
+```text
+file
+file_offset
+chunk_offset
+length
+```
+
+segment haritasını kullanır. Bir dosya seçildiğinde sadece o dosyanın bulunduğu chunk byte aralıkları istenir. İstemci büyük segmentleri 32 MiB Range isteklerine böler ve Chrome/Edge üzerinde File System Access API kullanarak gelen veriyi doğrudan seçilen dosyaya yazar. Böylece büyük bir dosyanın tamamı RAM içinde tutulmaz ve oyunun geri kalanı indirilmez.
+
+Akış:
+
+```text
+GitHub Pages File Explorer
+  -> catalog + manifest oku
+  -> seçilen dosyanın segmentlerini bul
+  -> 32 MiB byte range istekleri
+  -> Drowned2 Range Worker
+  -> GitHub Release chunk asset
+  -> yalnız gerekli byte'lar
+  -> kullanıcının seçtiği dosyaya stream et
+```
+
+`worker/src/index.js` yalnızca `thedrowned925/drowned2`, `chunk-XXXXXX.bin` biçimindeki assetler ve en fazla 64 MiB'lık tekil Range isteklerine izin verir. `ACCESS_KEY` tanımlandığında web arayüzündeki anahtar ile Worker anahtarının eşleşmesi gerekir.
+
+GitHub Pages deployment workflow'u `.github/workflows/pages.yml` içindedir. Repository için Pages ilk kez **Settings > Pages > Build and deployment > Source: GitHub Actions** olarak etkinleştirildikten sonra `web/`, `catalog.json`, `manifests/` veya `artwork/` değiştiğinde site otomatik yeniden yayınlanır.
+
+Worker kurulumu için `worker/README.md` dosyasına bak.
 
 ## Metadata yapısı
 
