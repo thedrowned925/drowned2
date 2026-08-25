@@ -1,0 +1,611 @@
+name: Bootstrap Drowned2 Steam Auto
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bootstrap-steam-auto.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout drowned2
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Copy Drowned1 source without old game data
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/thedrowned925/drowned1.git source
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='.github/workflows/' \
+            --exclude='artwork/' \
+            --exclude='manifests/' \
+            --exclude='catalog.json' \
+            --exclude='game-list.md' \
+            --exclude='.build-status/' \
+            source/ ./
+          rm -rf source
+
+      - name: Point copied source at drowned2
+        shell: python
+        run: |
+          from pathlib import Path
+
+          replacements = {
+              'thedrowned925/drowned1': 'thedrowned925/drowned2',
+              'github.com/thedrowned925/drowned1': 'github.com/thedrowned925/drowned2',
+          }
+          for path in Path('.').rglob('*'):
+              if not path.is_file() or '.git' in path.parts:
+                  continue
+              if len(path.parts) >= 2 and path.parts[0] == '.github' and path.parts[1] == 'workflows':
+                  continue
+              try:
+                  raw = path.read_bytes()
+                  if b'\x00' in raw:
+                      continue
+                  text = raw.decode('utf-8')
+              except (UnicodeDecodeError, OSError):
+                  continue
+              updated = text
+              for old, new in replacements.items():
+                  updated = updated.replace(old, new)
+              if updated != text:
+                  path.write_text(updated, encoding='utf-8')
+
+      - name: Add Steam folder auto detection
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > shared/python/drowned_shared/steam_detect.py <<'PY'
+          from __future__ import annotations
+
+          import os
+          import re
+          from dataclasses import dataclass
+          from pathlib import Path
+
+
+          class SteamDetectionError(RuntimeError):
+              pass
+
+
+          @dataclass(frozen=True)
+          class SteamGameInfo:
+              app_id: int
+              name: str
+              install_dir: str
+              game_root: Path
+              manifest_path: Path | None = None
+              build_id: str = ''
+              last_updated: str = ''
+
+
+          _PAIR_RE = re.compile(r'^\s*"([^"]+)"\s+"([^"]*)"\s*$')
+
+
+          def parse_appmanifest(path: Path | str) -> dict[str, str]:
+              manifest = Path(path)
+              try:
+                  text = manifest.read_text(encoding='utf-8', errors='replace')
+              except OSError as exc:
+                  raise SteamDetectionError(f'Steam manifest okunamadı: {manifest}: {exc}') from exc
+              data: dict[str, str] = {}
+              for line in text.splitlines():
+                  match = _PAIR_RE.match(line)
+                  if match:
+                      data[match.group(1).lower()] = match.group(2)
+              return data
+
+
+          def _inside(path: Path, root: Path) -> bool:
+              try:
+                  path.resolve().relative_to(root.resolve())
+                  return True
+              except (ValueError, OSError):
+                  if os.name == 'nt':
+                      p = os.path.normcase(str(path.resolve()))
+                      r = os.path.normcase(str(root.resolve())).rstrip('\\/')
+                      return p == r or p.startswith(r + os.sep)
+                  return False
+
+
+          def _steamapps_near(selected: Path) -> list[Path]:
+              found: list[Path] = []
+              current = selected.resolve()
+              for candidate in [current, *current.parents]:
+                  if candidate.name.lower() == 'steamapps':
+                      found.append(candidate)
+                  if candidate.parent.name.lower() == 'common' and candidate.parent.parent.name.lower() == 'steamapps':
+                      found.append(candidate.parent.parent)
+              return found
+
+
+          def _steam_appid_txt(selected: Path) -> int | None:
+              current = selected.resolve()
+              for base in [current, *list(current.parents)[:6]]:
+                  candidate = base / 'steam_appid.txt'
+                  if not candidate.is_file():
+                      continue
+                  try:
+                      value = candidate.read_text(encoding='utf-8', errors='ignore').strip().splitlines()[0].strip()
+                  except (OSError, IndexError):
+                      continue
+                  if value.isdigit() and int(value) > 0:
+                      return int(value)
+              return None
+
+
+          def _known_steamapps() -> list[Path]:
+              roots: list[Path] = []
+              if os.name == 'nt':
+                  try:
+                      import winreg
+                      locations = [
+                          (winreg.HKEY_CURRENT_USER, r'Software\Valve\Steam', 'SteamPath'),
+                          (winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\WOW6432Node\Valve\Steam', 'InstallPath'),
+                          (winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\Valve\Steam', 'InstallPath'),
+                      ]
+                      for hive, key_name, value_name in locations:
+                          try:
+                              with winreg.OpenKey(hive, key_name) as key:
+                                  value, _ = winreg.QueryValueEx(key, value_name)
+                                  if value:
+                                      roots.append(Path(str(value)) / 'steamapps')
+                          except OSError:
+                              pass
+                  except ImportError:
+                      pass
+              else:
+                  roots.extend([
+                      Path.home() / '.steam/steam/steamapps',
+                      Path.home() / '.local/share/Steam/steamapps',
+                  ])
+
+              result = list(roots)
+              path_re = re.compile(r'^\s*"path"\s+"([^"]+)"', re.IGNORECASE)
+              for steamapps in list(roots):
+                  vdf = steamapps / 'libraryfolders.vdf'
+                  if not vdf.is_file():
+                      continue
+                  try:
+                      text = vdf.read_text(encoding='utf-8', errors='replace')
+                  except OSError:
+                      continue
+                  for line in text.splitlines():
+                      match = path_re.match(line)
+                      if match:
+                          raw = match.group(1).replace('\\\\', '\\')
+                          result.append(Path(raw) / 'steamapps')
+
+              unique: list[Path] = []
+              seen: set[str] = set()
+              for item in result:
+                  key = os.path.normcase(str(item)) if os.name == 'nt' else str(item)
+                  if key not in seen:
+                      seen.add(key)
+                      unique.append(item)
+              return unique
+
+
+          def _match(selected: Path, steamapps: Path, forced_appid: int | None) -> SteamGameInfo | None:
+              if not steamapps.is_dir():
+                  return None
+              manifests = [steamapps / f'appmanifest_{forced_appid}.acf'] if forced_appid else sorted(steamapps.glob('appmanifest_*.acf'))
+              common = steamapps / 'common'
+              for manifest in manifests:
+                  if not manifest.is_file():
+                      continue
+                  data = parse_appmanifest(manifest)
+                  appid = data.get('appid', '')
+                  install_dir = data.get('installdir', '')
+                  if not appid.isdigit() or not install_dir:
+                      continue
+                  game_root = common / install_dir
+                  if not (_inside(selected, game_root) or _inside(game_root, selected)):
+                      continue
+                  return SteamGameInfo(
+                      app_id=int(appid),
+                      name=data.get('name', '') or install_dir,
+                      install_dir=install_dir,
+                      game_root=game_root,
+                      manifest_path=manifest,
+                      build_id=data.get('buildid', ''),
+                      last_updated=data.get('lastupdated', ''),
+                  )
+              return None
+
+
+          def detect_steam_game(selected_folder: Path | str) -> SteamGameInfo:
+              selected = Path(selected_folder).expanduser().resolve()
+              if not selected.is_dir():
+                  raise SteamDetectionError(f'Geçerli bir oyun klasörü değil: {selected}')
+
+              forced_appid = _steam_appid_txt(selected)
+              candidates = _steamapps_near(selected) + _known_steamapps()
+              seen: set[str] = set()
+              for steamapps in candidates:
+                  key = os.path.normcase(str(steamapps)) if os.name == 'nt' else str(steamapps)
+                  if key in seen:
+                      continue
+                  seen.add(key)
+                  info = _match(selected, steamapps, forced_appid)
+                  if info:
+                      return info
+
+              if forced_appid:
+                  return SteamGameInfo(
+                      app_id=forced_appid,
+                      name=selected.name,
+                      install_dir=selected.name,
+                      game_root=selected,
+                  )
+
+              raise SteamDetectionError(
+                  'Seçilen klasör Steam appmanifest verisiyle eşleştirilemedi. '
+                  'Steam üzerinden kurulu oyunun ana klasörünü veya onun içindeki bir alt klasörü seç.'
+              )
+          PY
+
+          cat > windows/release-manager/app_steam.py <<'PY'
+          from __future__ import annotations
+
+          import sys
+          from pathlib import Path
+
+          from PySide6.QtWidgets import QApplication
+
+          import app_v10 as previous
+          from drowned_shared.steam_detect import SteamDetectionError, detect_steam_game
+
+          APP_VERSION = '0.11.0'
+
+
+          class Manager(previous.Manager):
+              def __init__(self):
+                  self.detected_steam_game = None
+                  super().__init__()
+                  self.setWindowTitle(
+                      f'Drowned2 Release Manager {APP_VERSION} • Steam Auto Detect + Balanced Direct Stream'
+                  )
+
+              def pick_source(self):
+                  # Drowned1'in klasör seçimi, boyut hesabı ve upload planı aynen çalışır.
+                  super().pick_source()
+                  source_text = self.source.text().strip()
+                  if not source_text:
+                      return
+
+                  try:
+                      info = detect_steam_game(Path(source_text))
+                  except SteamDetectionError as exc:
+                      if hasattr(self, 'steam_status'):
+                          self.steam_status.setText(
+                              'Steam eşleşmesi bulunamadı. Klasör yine manuel metadata ile yedeklenebilir. ' + str(exc)
+                          )
+                      return
+
+                  self.detected_steam_game = info
+                  if hasattr(self, 'steamdb_url'):
+                      self.steamdb_url.setText(str(info.app_id))
+                  if hasattr(self, 'game_title') and info.name:
+                      self.game_title.setText(info.name)
+                  if hasattr(self, 'platform'):
+                      index = self.platform.findText('PC')
+                      if index >= 0:
+                          self.platform.setCurrentIndex(index)
+
+                  build_text = f' • Steam build {info.build_id}' if info.build_id else ''
+                  if hasattr(self, 'steam_status'):
+                      self.steam_status.setText(
+                          f'✓ Steam AppID {info.app_id} bulundu{build_text}. '
+                          'Oyun bilgileri ve görseller otomatik alınıyor…'
+                      )
+
+                  # Drowned1'de zaten bulunan Steam Store/CDN katmanını yeniden kullanır.
+                  # Bu katman isim, açıklama, hero/cover/logo/icon, screenshot ve trailer metadata'sını çeker.
+                  if hasattr(self, 'fetch_steam_artwork'):
+                      self.fetch_steam_artwork()
+
+
+          def main():
+              app = QApplication(sys.argv)
+              app.setApplicationName('Drowned2 Release Manager')
+              app.setOrganizationName('Drowned')
+              app.setStyle('Fusion')
+              app.setStyleSheet(previous.previous.previous.previous.previous.previous.MODERN_STYLE)
+              win = Manager()
+              win.show()
+              sys.exit(app.exec())
+
+
+          if __name__ == '__main__':
+              main()
+          PY
+
+          cat > tests/test_steam_detect.py <<'PY'
+          import tempfile
+          import unittest
+          from pathlib import Path
+
+          from drowned_shared.steam_detect import detect_steam_game, parse_appmanifest
+
+
+          class SteamDetectTests(unittest.TestCase):
+              def test_detects_subfolder_from_manifest(self):
+                  with tempfile.TemporaryDirectory() as tmp:
+                      root = Path(tmp)
+                      steamapps = root / 'steamapps'
+                      game = steamapps / 'common' / 'Portal 2'
+                      selected = game / 'bin'
+                      selected.mkdir(parents=True)
+                      manifest = steamapps / 'appmanifest_620.acf'
+                      manifest.write_text(
+                          '"AppState"\n{\n'
+                          '  "appid" "620"\n'
+                          '  "name" "Portal 2"\n'
+                          '  "installdir" "Portal 2"\n'
+                          '  "buildid" "123456"\n'
+                          '}\n',
+                          encoding='utf-8',
+                      )
+                      info = detect_steam_game(selected)
+                      self.assertEqual(info.app_id, 620)
+                      self.assertEqual(info.name, 'Portal 2')
+                      self.assertEqual(info.build_id, '123456')
+                      self.assertEqual(info.game_root, game)
+
+              def test_parse_manifest(self):
+                  with tempfile.TemporaryDirectory() as tmp:
+                      path = Path(tmp) / 'appmanifest_10.acf'
+                      path.write_text(
+                          '"AppState"\n{\n"appid" "10"\n"installdir" "Half-Life"\n}\n',
+                          encoding='utf-8',
+                      )
+                      data = parse_appmanifest(path)
+                      self.assertEqual(data['appid'], '10')
+                      self.assertEqual(data['installdir'], 'Half-Life')
+
+
+          if __name__ == '__main__':
+              unittest.main()
+          PY
+
+      - name: Add Drowned2 workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > .github/workflows/ci.yml <<'YML'
+          name: Drowned2 CI
+          on:
+            push:
+              branches: [main]
+              paths:
+                - 'shared/**'
+                - 'windows/**'
+                - 'tests/**'
+                - '.github/workflows/ci.yml'
+            pull_request:
+              branches: [main]
+            workflow_dispatch:
+          jobs:
+            test:
+              runs-on: windows-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-python@v5
+                  with:
+                    python-version: '3.13'
+                - name: Install
+                  shell: pwsh
+                  run: |
+                    python -m pip install --upgrade pip
+                    python -m pip install shared/python
+                    python -m pip install -r windows/release-manager/requirements.txt
+                - name: Test
+                  shell: pwsh
+                  run: |
+                    python -m py_compile shared/python/drowned_shared/steam_detect.py
+                    python -m py_compile windows/release-manager/app_steam.py
+                    python -X utf8 -m unittest discover -s tests -v
+          YML
+
+          cat > .github/workflows/build-steam-backup.yml <<'YML'
+          name: Build Drowned2 Release Manager
+          on:
+            push:
+              branches: [main]
+              paths:
+                - 'windows/release-manager/app_steam.py'
+                - 'shared/python/drowned_shared/steam_detect.py'
+                - 'shared/python/drowned_shared/steam_artwork.py'
+                - '.github/workflows/build-steam-backup.yml'
+            workflow_dispatch:
+          jobs:
+            build:
+              runs-on: windows-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-python@v5
+                  with:
+                    python-version: '3.13'
+                - name: Install dependencies
+                  shell: pwsh
+                  run: |
+                    python -m pip install --upgrade pip pyinstaller
+                    python -m pip install shared/python
+                    python -m pip install -r windows/release-manager/requirements.txt
+                - name: Build
+                  shell: pwsh
+                  run: >-
+                    pyinstaller
+                    --noconfirm
+                    --clean
+                    --windowed
+                    --paths "shared/python"
+                    --collect-all drowned_shared
+                    --name "Drowned2-Release-Manager"
+                    "windows/release-manager/app_steam.py"
+                - uses: actions/upload-artifact@v4
+                  with:
+                    name: Drowned2-Release-Manager-Windows
+                    path: dist/Drowned2-Release-Manager/
+          YML
+
+          cat > .github/workflows/update-game-list.yml <<'YML'
+          name: Update Drowned2 Game List
+          on:
+            workflow_dispatch:
+            release:
+              types: [published, deleted]
+          permissions:
+            contents: write
+          jobs:
+            update:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-python@v5
+                  with:
+                    python-version: '3.13'
+                - name: Generate list from catalog
+                  shell: python
+                  run: |
+                    import json
+                    from pathlib import Path
+                    p = Path('catalog.json')
+                    catalog = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {'games': []}
+                    games = sorted(catalog.get('games', []), key=lambda g: str(g.get('title') or g.get('id') or '').lower())
+                    lines = ['# Drowned2 Oyun Arşivi', '', f'**Toplam oyun:** {len(games)}', '']
+                    for game in games:
+                        title = game.get('title') or game.get('id') or '?'
+                        platform = str(game.get('platform') or 'pc').upper()
+                        channels = game.get('channels') or {}
+                        versions = ', '.join(f"{name}: {data.get('version', '?')}" for name, data in sorted(channels.items()))
+                        lines.append(f'- **{title}** — {platform}' + (f' — {versions}' if versions else ''))
+                    Path('game-list.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+                - name: Commit
+                  shell: bash
+                  run: |
+                    git config user.name "github-actions[bot]"
+                    git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                    git add game-list.md
+                    if git diff --cached --quiet; then exit 0; fi
+                    git commit -m "Update Drowned2 game list"
+                    git push
+          YML
+
+      - name: Initialize clean Drowned2 data and documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf artwork manifests .build-status
+          mkdir -p artwork manifests .build-status
+          touch artwork/.gitkeep manifests/.gitkeep .build-status/.gitkeep
+
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+          Path('catalog.json').write_text(
+              json.dumps({
+                  'schema_version': 1,
+                  'updated_at': datetime.now(timezone.utc).isoformat(),
+                  'games': [],
+              }, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+          cat > game-list.md <<'EOF'
+          # Drowned2 Oyun Arşivi
+
+          **Toplam oyun:** 0
+          EOF
+
+          cat > README.md <<'EOF'
+          # Drowned2 — Steam'den Kurulu Oyunları Yedekleme
+
+          `drowned2`, `drowned1` içindeki Drowned Distribution Suite mimarisinin ayrı ve temiz bir kopyasıdır. Drowned1'in mevcut oyun katalogları, manifestleri ve artwork verileri buraya taşınmaz.
+
+          ## Asıl kullanım
+
+          **Steam oyunu kendisi indirmez.** Oyunu Steam istemcisinden sen normal şekilde indirirsin. Sonra Drowned2 Release Manager'da oyun klasörünü seçersin.
+
+          Klasör seçildiği anda sistem:
+
+          1. Seçilen klasörü Steam'in `steamapps/appmanifest_<appid>.acf` dosyalarıyla eşleştirir.
+          2. Steam AppID'yi otomatik bulur.
+          3. App manifestten oyun adını ve Steam build bilgisini okur.
+          4. Drowned1'de zaten bulunan Steam Store/CDN entegrasyonunu otomatik çalıştırır.
+          5. Oyun adı, açıklama, hero, cover, logo/icon, ekran görüntüleri ve trailer metadata'sını Steam'den çeker.
+          6. Sen **Yayınla/Yedekle** dediğinde Drowned1 ile aynı Balanced Direct Stream + GitHub Releases mantığı çalışır.
+
+          ```text
+          Steam'den senin indirdiğin oyun
+            -> oyun klasörünü seç
+            -> appmanifest eşleştirme
+            -> AppID + Steam metadata/artwork
+            -> sen manuel olarak yedeklemeyi başlat
+            -> Balanced Direct Stream chunks
+            -> GitHub Release Assets
+            -> manifest + catalog.json
+          ```
+
+          Steam eşleşmesi bulunamazsa klasör seçimi engellenmez; Drowned1'deki gibi bilgileri elle girerek yine yayınlama yapılabilir.
+
+          ## Steam AppID algılama
+
+          Yeni `shared/python/drowned_shared/steam_detect.py` katmanı şunları destekler:
+
+          - `steamapps/common/<oyun>` yapısı
+          - Seçilen klasörün oyunun alt klasörü olması
+          - `appmanifest_<appid>.acf` içindeki `appid`, `name`, `installdir`, `buildid`
+          - `steam_appid.txt`
+          - Windows Registry'deki Steam yolu
+          - `libraryfolders.vdf` ile ek Steam Library klasörleri
+
+          ## Uygulamalar
+
+          - `windows/release-manager/app_steam.py` — Drowned2 için yeni ana Release Manager giriş noktası.
+          - `windows/launcher/` — Drowned1 launcher kodunun Drowned2 repository referanslarına çevrilmiş kopyası.
+          - `shared/python/` — Drowned1'in chunking, install, GitHub client, metadata, Steam artwork ve doğrulama altyapısı.
+          - `mobile/`, `scripts/`, `tests/` — Drowned1 kaynak yapısının temiz kopyası.
+
+          ## Actions
+
+          - `Drowned2 CI` — kod/test kontrolü.
+          - `Build Drowned2 Release Manager` — Windows uygulamasını build edip Actions artifact üretir.
+          - `Update Drowned2 Game List` — release değişince `game-list.md` dosyasını katalogdan günceller.
+
+          Kaynak mimari: `thedrowned925/drowned1`  
+          Hedef arşiv: `thedrowned925/drowned2`
+          EOF
+
+          # Eski/çakışan bootstrap artık kullanılmasın.
+          rm -f .github/workflows/bootstrap-from-drowned1.yml
+
+      - name: Commit bootstrap result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Bootstrap Drowned2 with automatic Steam folder detection"
+          git push origin HEAD:main
