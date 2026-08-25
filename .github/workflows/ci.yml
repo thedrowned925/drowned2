@@ -13,6 +13,7 @@ on:
       - 'tests/**'
       - 'windows/**'
       - '.github/workflows/ci.yml'
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -28,14 +29,29 @@ jobs:
           python-version: '3.13'
           cache: 'pip'
           cache-dependency-path: shared/python/pyproject.toml
+
       - run: python -m pip install shared/python
-      - run: python -m unittest discover -s tests -v
-      - run: |
+
+      - name: Run complete shared test suite
+        run: python -X utf8 -m unittest discover -s tests -v
+
+      - name: Compile Release Manager sources
+        run: |
           python -m py_compile windows/release-manager/app_v3.py
           python -m py_compile windows/release-manager/app_v4.py
           python -m py_compile windows/release-manager/app_v5.py
           python -m py_compile windows/release-manager/app_v6.py
           python -m py_compile windows/release-manager/app_v7.py
+          python -m py_compile windows/release-manager/app_v8.py
+          python -m py_compile windows/release-manager/app_v9.py
+          python -m py_compile windows/release-manager/app_v10.py
+          python -m py_compile windows/release-manager/app_steam.py
+          python -m py_compile shared/python/drowned_shared/steam_detect.py
+
+      - name: Compile Launcher sources
+        run: |
+          python -m py_compile windows/launcher/app.py
+          python -m py_compile windows/launcher/app_v3.py
           python -m py_compile windows/launcher/app_v4.py
           python -m py_compile windows/launcher/app_v5.py
           python -m py_compile windows/launcher/app_v6.py
@@ -44,6 +60,11 @@ jobs:
           python -m py_compile windows/launcher/app_v9.py
           python -m py_compile windows/launcher/app_v10.py
           python -m py_compile windows/launcher/app_v11.py
+          python -m py_compile windows/launcher/app_v12.py
+          python -m py_compile windows/launcher/app_v13.py
+          python -m py_compile windows/launcher/app_v14.py
+          python -m py_compile windows/launcher/app_v15.py
+          python -m py_compile windows/launcher/app_v16.py
           python -m py_compile windows/launcher/library_grid.py
           python -m py_compile windows/launcher/library_navigation.py
           python -m py_compile windows/launcher/xinput.py
