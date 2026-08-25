@@ -3,12 +3,18 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
+import keyring
+from PySide6.QtCore import QSettings
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 import app_v10 as previous
 from drowned_shared.steam_detect import SteamDetectionError, detect_steam_game
 
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.11.1"
+D2_OWNER = "thedrowned925"
+D2_REPO = "drowned2"
+D2_SERVICE = "Drowned2ReleaseManager"
+D2_ACCOUNT = "github_pat"
 
 
 class Manager(previous.Manager):
@@ -17,8 +23,54 @@ class Manager(previous.Manager):
     def __init__(self):
         self.detected_steam_game = None
         super().__init__()
+
+        # Drowned1 and Drowned2 must never share the same saved repository target.
+        # The inherited UI is reused, but this wrapper owns an independent QSettings
+        # namespace and keyring service and pins all write operations to drowned2.
+        inherited_token = self.token.text().strip() if hasattr(self, "token") else ""
+        self.settings = QSettings("Drowned", "Drowned2ReleaseManager")
+
+        self.owner.setText(D2_OWNER)
+        self.owner.setReadOnly(True)
+        self.repo.setText(D2_REPO)
+        self.repo.setReadOnly(True)
+        self.branch.setText(str(self.settings.value("branch", "main") or "main"))
+
+        saved_token = keyring.get_password(D2_SERVICE, D2_ACCOUNT) or ""
+        if saved_token:
+            self.token.setText(saved_token)
+        elif inherited_token:
+            # One-time convenience for an existing Drowned installation. Once saved,
+            # Drowned2 uses its own keyring entry from then on.
+            self.token.setText(inherited_token)
+
         self.setWindowTitle(
             f"Drowned2 Release Manager {APP_VERSION} • Steam Auto Detect + Balanced Direct Stream"
+        )
+
+    def _params(self):
+        """Hard-pin publish/delete operations to drowned2 regardless of old settings."""
+        return {
+            "token": self.token.text().strip(),
+            "owner": D2_OWNER,
+            "repo": D2_REPO,
+            "branch": self.branch.text().strip() or "main",
+        }
+
+    def save_settings(self):
+        """Persist Drowned2 settings without overwriting Drowned1's settings/keyring."""
+        branch = self.branch.text().strip() or "main"
+        self.settings.setValue("owner", D2_OWNER)
+        self.settings.setValue("repo", D2_REPO)
+        self.settings.setValue("branch", branch)
+        token = self.token.text().strip()
+        if token:
+            keyring.set_password(D2_SERVICE, D2_ACCOUNT, token)
+        QMessageBox.information(
+            self,
+            "Kaydedildi",
+            "Drowned2 GitHub ayarları ayrı ve güvenli biçimde kaydedildi.\n"
+            "Hedef repository: thedrowned925/drowned2",
         )
 
     def pick_source(self):
