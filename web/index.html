@@ -18,7 +18,7 @@
         </div>
       </div>
       <div class="top-actions">
-        <span id="connectionBadge" class="badge warn">Proxy ayarlanmadı</span>
+        <span id="connectionBadge" class="badge warn">GitHub token gerekli</span>
         <button id="settingsButton" class="button ghost" type="button">Ayarlar</button>
       </div>
     </header>
@@ -76,13 +76,12 @@
       </div>
       <div id="fileDialogStats" class="stats"></div>
       <div id="downloadProgress" class="progress-block hidden">
-        <div class="progress-line"><span id="progressText">Hazırlanıyor…</span><span id="progressPercent">0%</span></div>
+        <div class="progress-line"><span id="progressText">Hazır</span><span id="progressPercent">0%</span></div>
         <progress id="progressBar" max="100" value="0"></progress>
       </div>
-      <div id="previewArea" class="preview-area hidden"></div>
+      <p class="hint">Dosya GitHub Actions üzerinde yalnızca ihtiyaç duyduğu chunk aralıklarından yeniden oluşturulur, SHA-256 ile doğrulanır ve geçici indirme Release'ine yüklenir.</p>
       <div class="dialog-actions">
-        <button id="previewButton" class="button ghost" type="button">Önizle</button>
-        <button id="downloadButton" class="button primary" type="button">Dosyayı indir</button>
+        <button id="downloadButton" class="button primary" type="button">Dosyayı hazırla ve indir</button>
       </div>
     </form>
   </dialog>
@@ -91,22 +90,18 @@
     <form method="dialog" class="dialog-card settings-card">
       <div class="dialog-head">
         <div>
-          <h2>İndirme geçidi</h2>
-          <div class="muted">Bu bilgiler yalnızca bu tarayıcıda localStorage içinde tutulur.</div>
+          <h2>GitHub bağlantısı</h2>
+          <div class="muted">Token yalnızca bu sekmenin sessionStorage alanında tutulur; repoya veya Pages dosyalarına yazılmaz.</div>
         </div>
         <button class="icon-button" value="cancel" aria-label="Kapat">×</button>
       </div>
       <label class="field">
-        <span>Cloudflare Worker URL</span>
-        <input id="proxyUrlInput" type="url" placeholder="https://drowned2-range.example.workers.dev">
+        <span>GitHub token</span>
+        <input id="githubTokenInput" type="password" autocomplete="off" placeholder="Fine-grained PAT">
       </label>
-      <label class="field">
-        <span>Erişim anahtarı</span>
-        <input id="accessKeyInput" type="password" placeholder="Worker ACCESS_KEY ile aynı değer">
-      </label>
-      <p class="hint">Anahtar repoya veya GitHub Pages dosyalarına yazılmaz. Worker tarafında ACCESS_KEY tanımlıysa burada aynı anahtarı gir.</p>
+      <p class="hint">Bu token yalnızca <strong>thedrowned925/drowned2</strong> için sınırlandırılabilir. Site üzerinden extraction workflow başlatabilmesi için Actions yazma izni yeterlidir.</p>
       <div class="dialog-actions">
-        <button id="saveSettingsButton" class="button primary" type="button">Kaydet</button>
+        <button id="saveSettingsButton" class="button primary" type="button">Bu oturum için kaydet</button>
       </div>
     </form>
   </dialog>
