@@ -11,15 +11,7 @@ Steam oyunu Drowned2 üzerinden indirilmez. Akış şu şekildedir:
 3. Klasör seçilir seçilmez sistem Steam kurulumunu otomatik tanır.
 4. `appmanifest_<appid>.acf` ile klasör eşleştirilir ve **Steam AppID** otomatik bulunur.
 5. Oyun adı ve Steam build ID yerel manifestten okunur.
-6. Drowned1'de zaten bulunan Steam Store/CDN katmanı otomatik çalıştırılır ve mümkün olan metadata alınır:
-   - oyun adı
-   - açıklama
-   - hero
-   - cover
-   - logo
-   - icon
-   - ekran görüntüleri
-   - fragman bağlantıları
+6. Drowned1'de zaten bulunan Steam Store/CDN katmanı otomatik çalıştırılır ve mümkün olan metadata alınır: oyun adı, açıklama, hero, cover, logo, icon, ekran görüntüleri ve fragman bağlantıları.
 7. Yedeklemeyi/yayınlamayı **sen manuel olarak başlatırsın**.
 8. Drowned1 ile aynı Balanced Direct Stream sistemi klasörü geçici dev arşiv oluşturmadan GitHub Release assetlerine yükler ve manifest + `catalog.json` üretir.
 
@@ -52,8 +44,8 @@ Steam eşleşmesi bulunamazsa mevcut Drowned mantığı bozulmaz; klasör yine s
 - **`windows/release-manager/app_steam.py`** — Drowned2 için Steam otomatik algılamalı ana Release Manager giriş noktası.
 - **Drowned Release Manager altyapısı** — oyun klasörünü GitHub Release assetlerine stream eder, manifest ve katalog üretir.
 - **Drowned Launcher** — `catalog.json` ve manifestleri okuyup yedekleri indirir, SHA-256 doğrulaması yapar ve dosyaları final konumlarına yazar.
-- **`web/`** — GitHub Pages üzerinde oyunları klasör klasör gezen ve tek dosya indirebilen web arayüzü.
-- **`worker/`** — yalnızca `thedrowned925/drowned2` Release chunk'larının izin verilen byte aralıklarını geçiren Cloudflare Worker.
+- **`web/`** — GitHub Pages üzerinde oyunları klasör klasör gezen ve tek dosya çıkarma isteği başlatan arayüz.
+- **`.github/workflows/extract-file.yml`** — seçilen dosyayı yalnızca ihtiyaç duyduğu chunk aralıklarından yeniden oluşturan GitHub Action.
 - **`shared/python`** — chunking, install, GitHub client, metadata, Steam artwork ve doğrulama altyapısı.
 - **`tests`** — Drowned1 testleri + Steam klasör algılama testleri.
 
@@ -65,7 +57,7 @@ Launcher chunk dosyalarını kalıcı arşiv olarak tutmak yerine manifestteki s
 
 ## Web File Explorer — tek dosya erişimi
 
-Web arayüzü mevcut chunk formatını değiştirmez. Manifestte zaten bulunan:
+Web arayüzü mevcut chunk formatını **hiç değiştirmez**. Manifestte zaten bulunan:
 
 ```text
 file
@@ -74,26 +66,32 @@ chunk_offset
 length
 ```
 
-segment haritasını kullanır. Bir dosya seçildiğinde sadece o dosyanın bulunduğu chunk byte aralıkları istenir. İstemci büyük segmentleri 32 MiB Range isteklerine böler ve Chrome/Edge üzerinde File System Access API kullanarak gelen veriyi doğrudan seçilen dosyaya yazar. Böylece büyük bir dosyanın tamamı RAM içinde tutulmaz ve oyunun geri kalanı indirilmez.
+segment haritasını kullanır. Bir dosya seçildiğinde GitHub Pages tarayıcıdan `.github/workflows/extract-file.yml` workflow'unu tetikler. Workflow seçilen dosyanın segmentlerini bulur, yalnızca ilgili GitHub Release chunk byte aralıklarını Range istekleriyle alır, dosyayı doğru sırada yeniden oluşturur ve manifestteki SHA-256 ile doğrular.
 
 Akış:
 
 ```text
 GitHub Pages File Explorer
   -> catalog + manifest oku
+  -> dosyayı seç
+  -> GitHub workflow_dispatch
   -> seçilen dosyanın segmentlerini bul
-  -> 32 MiB byte range istekleri
-  -> Drowned2 Range Worker
-  -> GitHub Release chunk asset
-  -> yalnız gerekli byte'lar
-  -> kullanıcının seçtiği dosyaya stream et
+  -> GitHub Release chunklarına Range isteği
+  -> dosyayı runner üzerinde yeniden oluştur
+  -> SHA-256 doğrula
+  -> drowned2-extracts Release asset'i
+  -> tarayıcı indirme bağlantısı
 ```
 
-`worker/src/index.js` yalnızca `thedrowned925/drowned2`, `chunk-XXXXXX.bin` biçimindeki assetler ve en fazla 64 MiB'lık tekil Range isteklerine izin verir. `ACCESS_KEY` tanımlandığında web arayüzündeki anahtar ile Worker anahtarının eşleşmesi gerekir.
+GitHub/CDN herhangi bir Range isteğini görmezden gelip `200` ile tüm ilgili chunk'ı döndürürse workflow güvenli fallback olarak sadece o dokunulan chunk'ı indirip gerekli byte aralığını yerelde keser. Bu fallback bile oyunun tamamını indirmez; yalnızca seçilen dosyanın temas ettiği chunk veya chunklar indirilir.
 
-GitHub Pages deployment workflow'u `.github/workflows/pages.yml` içindedir. Repository için Pages ilk kez **Settings > Pages > Build and deployment > Source: GitHub Actions** olarak etkinleştirildikten sonra `web/`, `catalog.json`, `manifests/` veya `artwork/` değiştiğinde site otomatik yeniden yayınlanır.
+Cloudflare, ayrı sunucu veya başka bir servis kullanılmaz. Sistem **GitHub Pages + GitHub Actions + GitHub Releases** ile çalışır.
 
-Worker kurulumu için `worker/README.md` dosyasına bak.
+Web arayüzündeki GitHub token yalnızca tarayıcının `sessionStorage` alanında tutulur; repoya veya Pages build'ine yazılmaz. Token `thedrowned925/drowned2` repository'siyle sınırlandırılabilir ve web arayüzünün workflow başlatabilmesi için **Actions: Read and write** yetkisi verilmelidir.
+
+Çıkarılan dosyalar `drowned2-extracts` adlı Release altında istek kimliğiyle isimlendirilir. Bu Release yalnızca web üzerinden istenen tekil dosyalar içindir; orijinal oyun chunk Release'lerine dokunulmaz.
+
+GitHub Pages deployment workflow'u `.github/workflows/pages.yml` içindedir. Workflow Pages'i mümkünse otomatik etkinleştirmeyi dener ve `web/`, `catalog.json`, `manifests/` veya `artwork/` değiştiğinde siteyi yeniden yayınlar.
 
 ## Metadata yapısı
 
@@ -115,6 +113,8 @@ game-list.md
 ## Yetkiler
 
 Release Manager için kullanılan fine-grained PAT yalnızca bu repository'ye erişecek şekilde sınırlandırılabilir ve en az `Contents: Read and write` iznine sahip olmalıdır. Token kaynak koda yazılmaz; mevcut Drowned güvenli saklama yöntemi kullanılmaya devam eder.
+
+Web File Explorer için ayrı, daha kısıtlı bir token kullanılabilir; bu token yalnızca bu repository için **Actions: Read and write** yetkisine sahip olabilir.
 
 ## Başlangıç durumu
 
