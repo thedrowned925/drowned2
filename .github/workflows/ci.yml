@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    paths:
+      - 'shared/python/**'
+      - 'tests/**'
+      - 'windows/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - 'shared/python/**'
+      - 'tests/**'
+      - 'windows/**'
+      - '.github/workflows/ci.yml'
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: shared/python/pyproject.toml
+      - run: python -m pip install shared/python
+      - run: python -m unittest discover -s tests -v
+      - run: |
+          python -m py_compile windows/release-manager/app_v3.py
+          python -m py_compile windows/release-manager/app_v4.py
+          python -m py_compile windows/release-manager/app_v5.py
+          python -m py_compile windows/release-manager/app_v6.py
+          python -m py_compile windows/release-manager/app_v7.py
+          python -m py_compile windows/launcher/app_v4.py
+          python -m py_compile windows/launcher/app_v5.py
+          python -m py_compile windows/launcher/app_v6.py
+          python -m py_compile windows/launcher/app_v7.py
+          python -m py_compile windows/launcher/app_v8.py
+          python -m py_compile windows/launcher/app_v9.py
+          python -m py_compile windows/launcher/app_v10.py
+          python -m py_compile windows/launcher/app_v11.py
+          python -m py_compile windows/launcher/library_grid.py
+          python -m py_compile windows/launcher/library_navigation.py
+          python -m py_compile windows/launcher/xinput.py
+          python -m py_compile windows/launcher/xinput_v2.py
