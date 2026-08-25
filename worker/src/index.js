@@ -96,9 +96,20 @@ export default {
       return text(`GitHub fetch failed: ${error?.message || error}`, 502, env);
     }
 
-    if (!(upstream.status === 206 || upstream.status === 200)) {
+    if (upstream.status !== 206) {
       const detail = await upstream.text().catch(() => "");
-      return text(`GitHub returned ${upstream.status}${detail ? `: ${detail.slice(0, 120)}` : ""}`, 502, env);
+      return text(`GitHub did not honor Range (${upstream.status})${detail ? `: ${detail.slice(0, 120)}` : ""}`, 502, env);
+    }
+
+    const contentRange = upstream.headers.get("Content-Range") || "";
+    const expectedPrefix = `bytes ${start}-${end}/`;
+    if (!contentRange.startsWith(expectedPrefix)) {
+      return text(`Unexpected Content-Range: ${contentRange || "missing"}`, 502, env);
+    }
+
+    const upstreamLength = Number(upstream.headers.get("Content-Length") || 0);
+    if (upstreamLength && upstreamLength !== length) {
+      return text(`Unexpected Content-Length: ${upstreamLength}`, 502, env);
     }
 
     const headers = new Headers(corsHeaders(env));
@@ -111,7 +122,7 @@ export default {
     }
 
     return new Response(upstream.body, {
-      status: upstream.status,
+      status: 206,
       headers,
     });
   },
