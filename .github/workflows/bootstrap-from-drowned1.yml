@@ -179,3 +179,5 @@ jobs:
           fi
           git commit -m "Bootstrap Steam-only distribution suite [steam-bootstrap]"
           git push origin HEAD:main
+
+# Triggered after the workflow existed on the default branch.
