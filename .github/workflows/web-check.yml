@@ -1,0 +1,34 @@
+name: Web Explorer Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "worker/**"
+      - ".github/workflows/web-check.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - "worker/**"
+      - ".github/workflows/web-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check browser JavaScript syntax
+        run: node --check web/app.js
+      - name: Check Worker JavaScript syntax
+        run: node --check worker/src/index.js
+      - name: Verify Pages inputs
+        run: |
+          test -f web/index.html
+          test -f web/styles.css
+          test -f catalog.json
+          test -d manifests
